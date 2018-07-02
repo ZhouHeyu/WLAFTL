@@ -1612,6 +1612,160 @@ void DFTL_Hit_Real_CMT(int blkno)
 
 
 /****************************************************
+ *              CPFTL  主函数
+ * **************************************************/
+void CPFTL_Scheme(int *pageno,int *req_size,int operation,int flash_flag)
+{
+    int blkno=(*pageno),cnt=(*req_size);
+    int pos=-1,free_pos=-1;
+    if(flash_flag==0){
+        send_flash_request(blkno*4, 4, operation, 1,0);
+        blkno++;
+    }
+    else{
+
+        if (itemcount<itemcount_threshold)
+        {
+            //利用trace数进行判断
+            rqst_cnt++;
+            if(operation==0){
+                write_count++;//用于计算总的写请求数
+            }
+            else
+                read_count++;
+            blkno++;
+        }
+        else{
+
+            if (itemcount==itemcount_threshold&&zhou_flag==0){
+//            为了配合warm时候的CMT已经加载，所以需要一个标识符zhou_flag来跳过这个初始化函数
+                request_cnt = rqst_cnt;
+                write_cnt = write_count;
+                read_cnt = read_count;
+                write_ratio = (write_cnt*1.0)/request_cnt;//写请求比例
+                read_ratio = (read_cnt*1.0)/request_cnt;  //读请求比列
+
+                average_request_size = (total_request_size*1.0)/itemcount;//请求平均大小
+
+                //test set 100
+                MAP_REAL_MAX_ENTRIES=100;
+                // real_arr 当做H-CMT使用
+                real_arr=(int *)malloc(sizeof(int)*MAP_REAL_MAX_ENTRIES);
+                // test_debug -->old 1536
+                MAP_SEQ_MAX_ENTRIES=160;
+                // seq_arr当做S-CMT使用
+                seq_arr=(int *)malloc(sizeof(int)*MAP_SEQ_MAX_ENTRIES);
+                //test set 100
+                MAP_SECOND_MAX_ENTRIES=100;
+                // second_arr当做C-CMT使用
+                second_arr=(int *)malloc(sizeof(int)*MAP_SECOND_MAX_ENTRIES);
+                init_arr();
+                zhou_flag=1;
+            }
+            rqst_cnt++;
+            // 此处开始CPFTL函数的逻辑
+            if(MLC_opagemap[blkno].map_status==MAP_REAL){
+                // 1. req in H-CMT
+                Hit_HCMT(blkno,operation);
+                //debug test
+                if(MLC_CheckArrStatus(second_arr,MAP_SECOND_MAX_ENTRIES,MAP_SECOND)!=0){
+                    printf("second_arr status error int req in H_CMT");
+                    assert(0);
+                }
+                blkno++;
+            }else if(MLC_opagemap[blkno].map_status==MAP_SECOND || MLC_opagemap[blkno].map_status==MAP_SEQ){
+                // 2. req in C-CMT or S-CMT
+                // load H-CMT is full
+
+                //debug test
+//			if(MLC_opagemap[blkno].map_status==MAP_SECOND){
+//				if(search_table(second_arr,MAP_SECOND_MAX_ENTRIES,blkno)==-1){
+//					printf("before second arr is error\n");
+//					assert(0);
+//				}
+//			}
+
+                if(MLC_opagemap[blkno].map_status==MAP_SECOND){
+                    move_CCMT_to_HCMT(blkno,operation);
+
+                }else if(MLC_opagemap[blkno].map_status==MAP_SEQ){
+                    move_SCMT_to_HCMT(blkno,operation);
+                }else{
+                    printf("should not come here!\n");
+                    assert(0);
+
+                }
+
+
+                //debug test
+//			if(MLC_opagemap[blkno].map_status==MAP_SECOND){
+//				if(search_table(second_arr,MAP_SECOND_MAX_ENTRIES,blkno)==-1){
+//					printf("after second arr is error\n");
+//					assert(0);
+//				}
+//			}
+
+                blkno++;
+
+            }
+            else if((cnt+1) >=10 ){
+                //THRESHOLD=10
+                // 3. THRESHOLD=2,表示大于或等于4KB的请求，当作连续请求来处理
+                //内部对blkno和cnt做了更新
+                // debug
+                int last_cnt=cnt;
+                int last_blkno=blkno;
+
+                CPFTL_pre_load_entry_into_SCMT(&blkno,&cnt,operation);
+
+                //debug test
+                if(cnt>0){
+                    int i=0;
+                    for(i=0;i<=last_cnt;i++){
+                        last_blkno++;
+                        if(MLC_opagemap[last_blkno].map_status==MAP_SECOND){
+                            if(search_table(second_arr,MAP_SECOND_MAX_ENTRIES,last_blkno)==-1){
+                                printf("error happend after CPFTL_pre_load_entry_into_SCMT\n");
+                                printf("second_arr not include %d",last_blkno);
+                                assert(0);
+                            }
+                        }
+                    }
+                }
+                //debug test
+
+            }
+            else{
+                //4. opagemap not in SRAM  must think about if map table in SRAM(C-CMT) is full
+                C_CMT_Is_Full();
+                // load entry into C_CMT
+                load_entry_into_C_CMT(blkno,operation);
+
+                //debug test
+                if(MLC_opagemap[blkno].map_status==MAP_SECOND){
+                    if(search_table(second_arr,MAP_SECOND_MAX_ENTRIES,blkno)==-1){
+                        printf("load new-entry into second arr is failed\n");
+                        assert(0);
+                    }
+                }
+
+                blkno++;
+            }
+            //CMT中的各种情况处理完毕
+        }
+        //MLC中的映射关系处理完毕
+    }
+
+
+
+    // update return data
+    (*pageno)=blkno;
+    (*req_size)=cnt;
+}
+
+
+
+/****************************************************
  *              CPFTL  封装函数
  * **************************************************/
 
