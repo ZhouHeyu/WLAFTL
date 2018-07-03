@@ -597,86 +597,80 @@ static ioreq_event * iotrace_ascii_get_ioreq_event_1 (FILE *tracefile, ioreq_eve
       ddbg_assert(0);
    }
 
-   //flashsim
+   //flashsim,计算对应的相对磨损速率
    RWs=SLC_stat_erase_num/40960;
    RWm=MLC_stat_erase_num/32768;
   // RWs=SLC_stat_erase_num/1000;
   // RWm=MLC_stat_erase_num/100;
    diff=abs(RWs-RWm);
+   //这里等效SLC是MLC的10倍,SLC是512MB的容量，则按2K页，128KB块，则SLC块为4096块
+   //MLC的页为4K页，256KB块，1GB的MLC的块数为4096
    Es=SLC_stat_erase_num%40960;
    Em=MLC_stat_erase_num%4096;
    threhold=abs(Es-Em);
    
   if(new->flags==0){ 
      printf("SLC磨损速度：%d\n",SLC_stat_erase_num);
-     printf("MLC磨损速度：%d\n",MLC_stat_erase_num);                     
-     
-    if(RWs==RWm){
-      RW_flag=0;
-      // th=8;
-        th=4;
-       
-    }else if(RWs<RWm){
-      RW_flag=0;
-      if((RWm-RWs)==1){
+     printf("MLC磨损速度：%d\n",MLC_stat_erase_num);
+     if(RWs==RWm){
+         RW_flag=0;
+//         th=8;
+         th=4;
+     }else if(RWs<RWm){
+         RW_flag=0;
+         if((RWm-RWs)==1){
         // th=12;
-         th=5;
-        
-      }else if((RWm-RWs)==2){
-         
-        //  th=18;
-        th=6;
-       
-     }else{
-          //th=22;
-        th=7;
-       
-     }
-   }else{
-      RW_flag=1;
-      if((RWs-RWm)==1){
-         if(th<=8){//th<=8
-          //  th=2;
-              th=1;
-         }else {
-          //  th=4;
-              th=2;
+            th=5;
+         }else if((RWm-RWs)==2){
+             //  th=18;
+            th=6;
+         }else{
+             //th=22;
+            th=7;
          }
-      }else{
+     }else{
+         RW_flag=1;
+         if((RWs-RWm)==1){
+             if(th<=8){//th<=8
+          //  th=2;
+                th=1;
+             }else {
+          //  th=4;
+                th=2;
+             }
+         }else{
           // yuzhi++;
-           th=0;
-          // printf("第13种情况\n");
-      }      
-   }
-       sblkno=new->blkno;
-       sbcount=((new->blkno+ new->bcount-1)/4 - (new->blkno)/4 + 1) * 4;
-       sblkno /= 4;
-       sblkno *= 4;
-       cnt= (sblkno+ sbcount-1)/4 - (sblkno)/4 + 1;                          
-       if(cnt<=th){
+                th=0;
+//                printf("第13种情况\n");
+         }
+     }
+     sblkno=new->blkno;
+     sbcount=((new->blkno+ new->bcount-1)/4 - (new->blkno)/4 + 1) * 4;
+     sblkno /= 4;
+     sblkno *= 4;
+     cnt= (sblkno+ sbcount-1)/4 - (sblkno)/4 + 1;
+     if(cnt<=th){
          if(new->blkno>=1048544){
-            new->blkno=new->blkno-1048544;
-         }          
-          new->flash_op_flag=0;
-          new->bcount=((new->blkno+ new->bcount-1)/4 - (new->blkno)/4 + 1) * 4;
-          new->blkno /= 4;
-          new->blkno *= 4;
-
-      }else{       
+             new->blkno=new->blkno-1048544;
+         }
+         new->flash_op_flag=0;
+         new->bcount=((new->blkno+ new->bcount-1)/4 - (new->blkno)/4 + 1) * 4;
+         new->blkno /= 4;
+         new->blkno *= 4;
+     }else{
          new->flash_op_flag=1;
          new->bcount = ((new->blkno+ new->bcount-1)/8 - (new->blkno)/8 + 1) * 8;
          new->blkno /= 8;
          new->blkno *= 8;
-      }
-  
-    
-  }else{       
-         new->flash_op_flag=1;
-         new->bcount = ((new->blkno+ new->bcount-1)/8 - (new->blkno)/8 + 1) * 8;
-         new->blkno /= 8;
-         new->blkno *= 8;
-      
+     }
+  }else{
+      new->flash_op_flag=1;
+      new->bcount = ((new->blkno+ new->bcount-1)/8 - (new->blkno)/8 + 1) * 8;
+      new->blkno /= 8;
+      new->blkno *= 8;
   }
+
+//  和req_even同步相关的代码操作
    if (new->flags & ASYNCHRONOUS) {
       new->flags |= (new->flags & READ) ? TIME_LIMITED : 0;
    } else if (new->flags & SYNCHRONOUS) {

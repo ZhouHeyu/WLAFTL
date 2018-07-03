@@ -50,6 +50,11 @@ double total_gc_overhead_time;
 extern double delay2;
 int map_pg_read=0;
 
+/****************************
+ * 该函数输入的blk就是tail指向的尾部块
+ * 采用N次策略和延迟正常迁移策略，通过RW_flag判断
+ * @param blk
+ */
 void SLC_data_move(int blk){
      int i,valid_flag,valid_sect_num;
      int blkno,bcount;
@@ -60,40 +65,45 @@ void SLC_data_move(int blk){
      for(i=0;i<S_PAGE_NUM_PER_BLK;i++){
          valid_flag=SLC_nand_oob_read(S_SECTOR(blk,i*S_SECT_NUM_PER_PAGE));
          if(valid_flag==1){
-            valid_sect_num=SLC_nand_page_read(S_SECTOR(blk,i*S_SECT_NUM_PER_PAGE),copy_lsn,1);
-            ASSERT(valid_sect_num==4);
+             valid_sect_num=SLC_nand_page_read(S_SECTOR(blk,i*S_SECT_NUM_PER_PAGE),copy_lsn,1);
+             ASSERT(valid_sect_num==4);
+//             如果RW_flag表示SLC的磨损速率小于等于MLC，采用延迟回写策略
              if(RW_flag==0){
-				        if(SLC_opagemap[S_BLK_PAGE_NO_SECT(copy_lsn[0])].count<2){
-									SLC_opagemap[S_BLK_PAGE_NO_SECT(copy_lsn[0])].ppn=S_BLK_PAGE_NO_SECT(S_SECTOR(free_SLC_blk_no[1],free_SLC_page_no[1]));
-						      SLC_nand_page_write(S_SECTOR(free_SLC_blk_no[1],free_SLC_page_no[1])&(~S_OFF_MASK_SECT),copy_lsn,1,1);
-						      free_SLC_page_no[1]+=S_SECT_NUM_PER_PAGE;
-									SLC_opagemap[S_BLK_PAGE_NO_SECT(copy_lsn[0])].count+=1;
-                               SLC_to_SLC_num++;
-								}else{
-						      SLC_opagemap[S_BLK_PAGE_NO_SECT(copy_lsn[0])].ppn=-1;
-						      SLC_opagemap[S_BLK_PAGE_NO_SECT(copy_lsn[0])].count=0;
-						      blkno=(S_BLK_PAGE_NO_SECT(copy_lsn[0])*4)/8;
-						      blkno*=8;
-						      bcount=8;
-                               SLC_to_MLC_num++;
-						      delay3=callFsim(blkno,bcount,0,1);
-						      delay2=delay2+delay3;
-				        }
-							}else{
-                  SLC_opagemap[S_BLK_PAGE_NO_SECT(copy_lsn[0])].ppn=-1;
-						      SLC_opagemap[S_BLK_PAGE_NO_SECT(copy_lsn[0])].count=0;
-						      blkno=(S_BLK_PAGE_NO_SECT(copy_lsn[0])*4)/8;
-						      blkno*=8;
-						      bcount=8;
-                           SLC_to_MLC_num++;
-						      delay3=callFsim(blkno,bcount,0,1);
-						      delay2=delay2+delay3;
-              }
-         }       
+//                 N次机制,通过SLC_opagemap[lpn].count位实现，N这里为2
+                 if(SLC_opagemap[S_BLK_PAGE_NO_SECT(copy_lsn[0])].count<2){
+                     SLC_opagemap[S_BLK_PAGE_NO_SECT(copy_lsn[0])].ppn=S_BLK_PAGE_NO_SECT(S_SECTOR(free_SLC_blk_no[1],free_SLC_page_no[1]));
+                     SLC_nand_page_write(S_SECTOR(free_SLC_blk_no[1],free_SLC_page_no[1])&(~S_OFF_MASK_SECT),copy_lsn,1,1);
+                     free_SLC_page_no[1]+=S_SECT_NUM_PER_PAGE;
+                     SLC_opagemap[S_BLK_PAGE_NO_SECT(copy_lsn[0])].count+=1;
+                     SLC_to_SLC_num++;
+                 }else{
+//                     反之直接回写到MLC
+                     SLC_opagemap[S_BLK_PAGE_NO_SECT(copy_lsn[0])].ppn=-1;
+                     SLC_opagemap[S_BLK_PAGE_NO_SECT(copy_lsn[0])].count=0;
+                     blkno=(S_BLK_PAGE_NO_SECT(copy_lsn[0])*4)/8;
+                     blkno*=8;
+                     bcount=8;
+                     SLC_to_MLC_num++;
+                     delay3=callFsim(blkno,bcount,0,1);
+                     delay2=delay2+delay3;
+                 }
+             }else{
+//                 正常迁移策略，直接迁移到MLC中去
+                 SLC_opagemap[S_BLK_PAGE_NO_SECT(copy_lsn[0])].ppn=-1;
+                 SLC_opagemap[S_BLK_PAGE_NO_SECT(copy_lsn[0])].count=0;
+                 blkno=(S_BLK_PAGE_NO_SECT(copy_lsn[0])*4)/8;
+                 blkno*=8;
+                 bcount=8;
+                 SLC_to_MLC_num++;
+                 delay3=callFsim(blkno,bcount,0,1);
+                 delay2=delay2+delay3;
+             }
+         }
      }
-     victim_blkno=blk; 
-     SLC_nand_erase(victim_blkno);    
+     victim_blkno=blk;
+     SLC_nand_erase(victim_blkno);
 }
+
 _u32 SLC_opm_gc_cost_benefit()
 {
   int max_cb = 0;
