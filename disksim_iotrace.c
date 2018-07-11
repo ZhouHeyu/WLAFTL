@@ -109,6 +109,9 @@
 
 extern int IO_trace;
  int RW_flag;
+ int th;
+ int add_th;
+ int max_th=32;
 static void iotrace_initialize_iotrace_info ()
 {
    disksim->iotrace_info = DISKSIM_malloc (sizeof(iotrace_info_t));
@@ -582,8 +585,8 @@ static ioreq_event * iotrace_ascii_get_ioreq_event_0 (FILE *tracefile, ioreq_eve
 static ioreq_event * iotrace_ascii_get_ioreq_event_1 (FILE *tracefile, ioreq_event *new)
 {
    char line[201];
-   int th,sbcount,mbcount,threhold,diff,Es,Em,sblkno;
-   _u32 RWs,RWm;
+   int sbcount,mbcount,threhold,diff,Es,Em,sblkno;
+   double RWs,RWm;
    int cnt,i,j,ppn;
    sect_t s_psn,s_psn1,s_lsn;
    blk_t pbn,pin;
@@ -598,11 +601,11 @@ static ioreq_event * iotrace_ascii_get_ioreq_event_1 (FILE *tracefile, ioreq_eve
    }
 
    //flashsim,计算对应的相对磨损速率
-   RWs=SLC_stat_erase_num/40960;
-   RWm=MLC_stat_erase_num/8192;
+   RWs=SLC_stat_erase_num*1.0/40960;
+   RWm=MLC_stat_erase_num*1.0/8192;
   // RWs=SLC_stat_erase_num/1000;
   // RWm=MLC_stat_erase_num/100;
-   diff=abs(RWs-RWm);
+//   diff=abs(RWs-RWm);
    //这里等效SLC是MLC的10倍,SLC是512MB的容量，则按2K页，128KB块，则SLC块为4096块
    //MLC的页为4K页，256KB块，1GB的MLC的块数为4096
    Es=SLC_stat_erase_num%40960;
@@ -614,35 +617,42 @@ static ioreq_event * iotrace_ascii_get_ioreq_event_1 (FILE *tracefile, ioreq_eve
      printf("MLC磨损速度：%d\n",MLC_stat_erase_num);
      if(RWs==RWm){
          RW_flag=0;
-//         th=8;
-         th=4;
+//         th=4;
      }else if(RWs<RWm){
          RW_flag=0;
-         if((RWm-RWs)==1){
-        // th=12;
-            th=5;
-         }else if((RWm-RWs)==2){
-             //  th=18;
-            th=6;
-         }else{
-             //th=22;
-            th=7;
+         th+=add_th;
+         if(th>max_th){
+            th=max_th;
          }
+//         if((RWm-RWs)==1){
+//        // th=12;
+//            th=5;
+//         }else if((RWm-RWs)==2){
+//             //  th=18;
+//            th=6;
+//         }else{
+//             //th=22;
+//            th=7;
+//         }
      }else{
          RW_flag=1;
-         if((RWs-RWm)==1){
-             if(th<=8){//th<=8
-          //  th=2;
-                th=1;
-             }else {
-          //  th=4;
-                th=2;
-             }
-         }else{
-          // yuzhi++;
-                th=0;
-//                printf("第13种情况\n");
+         th-=add_th;
+         if(th<0){
+            th=0;
          }
+//         if((RWs-RWm)==1){
+//             if(th<=8){//th<=8
+//          //  th=2;
+//                th=1;
+//             }else {
+//          //  th=4;
+//                th=2;
+//             }
+//         }else{
+//          // yuzhi++;
+//                th=0;
+////                printf("第13种情况\n");
+//         }
      }
      sblkno=new->blkno;
      sbcount=((new->blkno+ new->bcount-1)/4 - (new->blkno)/4 + 1) * 4;
