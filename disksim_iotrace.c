@@ -599,14 +599,14 @@ static ioreq_event * iotrace_ascii_get_ioreq_event_1 (FILE *tracefile, ioreq_eve
 
    //flashsim,计算对应的相对磨损速率
    RWs=SLC_stat_erase_num/40960;
-   RWm=MLC_stat_erase_num/32768;
+   RWm=MLC_stat_erase_num/8192;
   // RWs=SLC_stat_erase_num/1000;
   // RWm=MLC_stat_erase_num/100;
    diff=abs(RWs-RWm);
    //这里等效SLC是MLC的10倍,SLC是512MB的容量，则按2K页，128KB块，则SLC块为4096块
    //MLC的页为4K页，256KB块，1GB的MLC的块数为4096
    Es=SLC_stat_erase_num%40960;
-   Em=MLC_stat_erase_num%4096;
+   Em=MLC_stat_erase_num%8192;
    threhold=abs(Es-Em);
    
   if(new->flags==0){ 
