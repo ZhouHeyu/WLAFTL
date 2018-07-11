@@ -185,3 +185,4 @@ int big_request_entry;
 int big_request_count;
 
 extern int in_cache_count;
+int warm_flag;

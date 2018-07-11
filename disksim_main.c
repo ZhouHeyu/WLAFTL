@@ -60,6 +60,8 @@
 #include "ssd_interface.h"
 #include "flash.h"
 #include "dftl.h"
+
+extern int warm_flag;
 void warmFlashsynth(){
 
   memset(dm_table, -1, sizeof(int) * DM_MGR_SIZE);
@@ -94,13 +96,13 @@ void warmFlash(char *tname){
     SLC_blkno=blkno;
     MLC_blkno=blkno;
   
-   if(flags==1){
+
     mbcount = ((blkno + bcount -1) / 8 - (blkno)/8 + 1) * 8;
     MLC_blkno /= 8;
     MLC_blkno *= 8;
    
-    delay = callFsim(MLC_blkno, mbcount, 0,1);  
-    }  
+    delay = callFsim(MLC_blkno, mbcount*4, 0,1);
+
     for(i = blkno; i<(blkno+bcount); i++){ dm_table[i] = DEV_FLASH; }
   }
   nand_stat_reset();
@@ -160,7 +162,7 @@ int main (int argc, char **argv)
   int len;
   void *addr;
   void *newaddr;
-
+    warm_flag=1;
 
   if(argc == 2) {
      disksim_restore_from_checkpoint (argv[1]);
@@ -188,7 +190,7 @@ int main (int argc, char **argv)
 
  // warmFlashsynth();
   warmFlash(argv[4]);
-
+    warm_flag=0;
   disksim_run_simulation ();
 
   disksim_cleanup_and_printstats ();

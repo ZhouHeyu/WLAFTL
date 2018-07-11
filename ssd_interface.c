@@ -20,7 +20,7 @@
 #include "dftl.h"
 #include "stdio.h"
 
-
+int warm_flag;
 extern int merge_switch_num;
 extern int merge_partial_num;
 extern int merge_full_num;
