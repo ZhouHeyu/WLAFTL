@@ -142,6 +142,7 @@ int zhou_flag=0;
  *  封装 callFsim的代码函数
  ***********************************************************************/
 void SecnoToPageno(int secno,int scount,int *blkno,int *bcount,int flash_flag);
+void FTL_Warm(int *pageno,int *req_size,int operation);
 /***********************************************************************
  *  author :zhoujie
  * SDFTL 代码执行的内部封装函数
@@ -877,9 +878,9 @@ double callFsim(unsigned int secno, int scount, int operation,int flash_flag)
                 // SDFTL scheme
                 //SDFTL_Scheme(&blkno,&cnt,operation,flash_flag);
                 // DFTL scheme
-                //DFTL_Scheme(&blkno,&cnt,operation,flash_flag);
+                DFTL_Scheme(&blkno,&cnt,operation,flash_flag);
                 // CPFTL scheme
-                CPFTL_Scheme(&blkno,&cnt,operation,flash_flag);
+                //CPFTL_Scheme(&blkno,&cnt,operation,flash_flag);
                 break;
             default:
                 printf("ftl_tpye is %d\n",ftl_type);
@@ -940,6 +941,44 @@ void SecnoToPageno(int secno,int scount,int *blkno,int *bcount,int flash_flag)
             *bcount = (secno + scount -1)/4 - (secno)/4 + 1;
             break;
     }
+}
+
+void FTL_Warm(int *pageno,int *req_size,int operation)
+{
+//    首先是翻译页的读取,不经过CMT，直接进行预热
+    int blkno=(*pageno),cnt=(*req_size);
+    if(operation==0){
+        send_flash_request(((blkno-MLC_page_num_for_2nd_map_table)/MLC_MAP_ENTRIES_PER_PAGE)*8,8,1,2,1);
+        translation_read_num++;
+        send_flash_request(((blkno-MLC_page_num_for_2nd_map_table)/MLC_MAP_ENTRIES_PER_PAGE)*8,8,0,2,1);
+        translation_write_num++;
+    } else{
+        send_flash_request(((blkno-MLC_page_num_for_2nd_map_table)/MLC_MAP_ENTRIES_PER_PAGE)*8,8,1,2,1);
+        translation_read_num++;
+    }
+
+
+//    其次数据页的读取
+    sequential_count = 0;
+    //之后连续的请求因为映射加载完成直接读取写入操作
+    for(;(cnt>0)&&(sequential_count<NUM_ENTRIES_PER_TIME);cnt--)
+    {
+        if(operation==0)
+        {
+            write_count++;
+        }
+        else
+            read_count++;
+        send_flash_request(blkno*8,8,operation,1,1);
+        blkno++;
+        rqst_cnt++;
+        sequential_count++;
+    }
+
+    //zhoujie
+    *req_size=cnt;
+    *pageno=blkno;
+
 }
 
 /**********************************************************
@@ -1414,66 +1453,72 @@ void DFTL_Scheme(int *pageno,int *req_size,int operation,int flash_flag)
                 write_ratio = (write_cnt*1.0)/request_cnt;//写请求比例
                 read_ratio = (read_cnt*1.0)/request_cnt;  //读请求比列
                 average_request_size = (total_request_size*1.0)/itemcount;//请求平均大小
-                // test debug 100
-                MAP_REAL_MAX_ENTRIES=4096;
+                // test debug 4096
+                MAP_REAL_MAX_ENTRIES=8192;
                 real_arr=(int *)malloc(sizeof(int)*MAP_REAL_MAX_ENTRIES);
-                // test debug 100
-                MAP_GHOST_MAX_ENTRIES=821;
+                // test debug old 821
+                MAP_GHOST_MAX_ENTRIES=8192;
                 ghost_arr=(int *)malloc(sizeof(int)*MAP_GHOST_MAX_ENTRIES);
                 DFTL_init_arr();
                 zhou_flag=1;
             }
 
             rqst_cnt++;
-            // req_entry in  SRAM
-            if((MLC_opagemap[blkno].map_status==MAP_REAL)||(MLC_opagemap[blkno].map_status==MAP_GHOST)){
-                cache_hit++;
-                MLC_opagemap[blkno].map_age++;
-                if(MLC_opagemap[blkno].map_status==MAP_GHOST){
-                    //debug test
-                    // printf("Hit Ghost CMT ,cache_hit %d\n",cache_hit);
+            if(warm_flag==1){
+                //warm ssd
+                FTL_Warm(&blkno,&cnt,operation);
+            }else{
+                // req_entry in  SRAM
+                if((MLC_opagemap[blkno].map_status==MAP_REAL)||(MLC_opagemap[blkno].map_status==MAP_GHOST)){
+                    cache_hit++;
+                    MLC_opagemap[blkno].map_age++;
+                    if(MLC_opagemap[blkno].map_status==MAP_GHOST){
+                        //debug test
+                        // printf("Hit Ghost CMT ,cache_hit %d\n",cache_hit);
 
-                    DFTL_Hit_Ghost_CMT(blkno);
-                }else if(MLC_opagemap[blkno].map_status==MAP_REAL){
-                    // debug test
-                    // printf("Hit Real CMT ,cache_hit %d\n",cache_hit);
-                    DFTL_Hit_Real_CMT(blkno);
+                        DFTL_Hit_Ghost_CMT(blkno);
+                    }else if(MLC_opagemap[blkno].map_status==MAP_REAL){
+                        // debug test
+                        // printf("Hit Real CMT ,cache_hit %d\n",cache_hit);
+                        DFTL_Hit_Real_CMT(blkno);
+                    }else{
+                        // debug
+                        printf("forbidden/shouldnt happen real =%d , ghost =%d\n",MAP_REAL,MAP_GHOST);
+                    }
+
+                    //2. opagemap not in SRAM
                 }else{
+                    // REAL CMT is FULL
+                    DFTL_Real_CMT_Full();
+                    //  read entry into REAL
+                    flash_hit++;
+                    send_flash_request(((blkno-MLC_page_num_for_2nd_map_table)/MLC_MAP_ENTRIES_PER_PAGE)*8,8,1,2,1);
+                    translation_read_num++;
+                    MLC_opagemap[blkno].map_status=MAP_REAL;
+                    MLC_opagemap[blkno].map_age=MLC_opagemap[real_max].map_age+1;
+                    real_max=blkno;
+                    MAP_REAL_NUM_ENTRIES++;
+                    pos=find_free_pos(real_arr,MAP_REAL_MAX_ENTRIES);
                     // debug
-                    printf("forbidden/shouldnt happen real =%d , ghost =%d\n",MAP_REAL,MAP_GHOST);
+                    if(pos == -1){
+                        printf("can not find free pos in real_arr for %d LPN",blkno);
+                        assert(0);
+                    }
+                    real_arr[pos]=0;
+                    real_arr[pos]=blkno;
                 }
 
-                //2. opagemap not in SRAM
-            }else{
-                // REAL CMT is FULL
-                DFTL_Real_CMT_Full();
-                //  read entry into REAL
-                flash_hit++;
-                send_flash_request(((blkno-MLC_page_num_for_2nd_map_table)/MLC_MAP_ENTRIES_PER_PAGE)*8,8,1,2,1);
-                translation_read_num++;
-                MLC_opagemap[blkno].map_status=MAP_REAL;
-                MLC_opagemap[blkno].map_age=MLC_opagemap[real_max].map_age+1;
-                real_max=blkno;
-                MAP_REAL_NUM_ENTRIES++;
-                pos=find_free_pos(real_arr,MAP_REAL_MAX_ENTRIES);
-                // debug
-                if(pos == -1){
-                    printf("can not find free pos in real_arr for %d LPN",blkno);
-                    assert(0);
+                // write data or read data to flash
+                if(operation==0){
+                    write_count++;
+                    MLC_opagemap[blkno].update=1;
+                }else{
+                    read_count++;
                 }
-                real_arr[pos]=0;
-                real_arr[pos]=blkno;
+                send_flash_request(blkno*8,8,operation,1,1);
+                blkno++;
             }
 
-            // write data or read data to flash
-            if(operation==0){
-                write_count++;
-                MLC_opagemap[blkno].update=1;
-            }else{
-                read_count++;
-            }
-            send_flash_request(blkno*8,8,operation,1,1);
-            blkno++;
         }
     }
 
