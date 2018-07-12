@@ -107,11 +107,13 @@
 #include "math.h"
  int flash_op_flag;
 
+
 extern int IO_trace;
  int RW_flag;
  int th;
  int add_th;
  int max_th=32;
+ int static_th=32;
 static void iotrace_initialize_iotrace_info ()
 {
    disksim->iotrace_info = DISKSIM_malloc (sizeof(iotrace_info_t));
@@ -694,6 +696,54 @@ static ioreq_event * iotrace_ascii_get_ioreq_event_1 (FILE *tracefile, ioreq_eve
    return(new);
 }
 
+static ioreq_event * iotrace_ascii_get_ioreq_event_2 (FILE *tracefile, ioreq_event *new)
+{
+   char line[201];
+   int sbcount,mbcount;
+   if (fgets(line, 200, tracefile) == NULL) {
+      addtoextraq((event *) new);
+      return(NULL);
+   }
+   if (sscanf(line, "%lf %d %d %d %x\n", &new->time, &new->devno, &new->blkno, &new->bcount, &new->flags) != 5) {
+      fprintf(stderr, "Wrong number of arguments for I/O trace event type\n");
+      fprintf(stderr, "line: %s", line);
+      ddbg_assert(0);
+   }
+
+   //flashsim
+   printf("采用固定阈值 %d KB\n",static_th/2);
+   printf("SLC磨损速度：%d\n",SLC_stat_erase_num);
+   printf("MLC磨损速度：%d\n",MLC_stat_erase_num);
+   sbcount = ((new->blkno+ new->bcount-1)/4 - (new->blkno)/4 + 1) * 4;
+   mbcount = ((new->blkno+ new->bcount-1)/8 - (new->blkno)/8 + 1) * 8;
+
+   if(new->bcount<=static_th){// 4
+      if(new->blkno>=1048544){
+         new->blkno=new->blkno-1048544;
+      }
+      new->bcount=((new->blkno+ new->bcount-1)/4 - (new->blkno)/4 + 1) * 4;
+      new->blkno /= 4;
+      new->blkno *= 4;
+      new->flash_op_flag=0;
+   }
+   else{
+      new->bcount=((new->blkno+ new->bcount-1)/8 - (new->blkno)/8 + 1) * 8;
+      new->blkno /= 8;
+      new->blkno *= 8;
+      new->flash_op_flag=1;
+   }
+   if (new->flags & ASYNCHRONOUS) {
+      new->flags |= (new->flags & READ) ? TIME_LIMITED : 0;
+   } else if (new->flags & SYNCHRONOUS) {
+      new->flags |= TIME_CRITICAL;
+   }
+
+   new->buf = 0;
+   new->opid = 0;
+   new->busno = 0;
+   new->cause = 0;
+   return(new);
+}
 
 ioreq_event * iotrace_get_ioreq_event (FILE *tracefile, int traceformat, ioreq_event *temp)
 {
@@ -703,7 +753,8 @@ ioreq_event * iotrace_get_ioreq_event (FILE *tracefile, int traceformat, ioreq_e
       if(IO_trace==0)
          temp = iotrace_ascii_get_ioreq_event_0(tracefile, temp);
       else
-        temp = iotrace_ascii_get_ioreq_event_1(tracefile, temp);
+//        temp = iotrace_ascii_get_ioreq_event_1(tracefile, temp);
+         temp=iotrace_ascii_get_ioreq_event_2(tracefile,temp);
       break;
       
    case RAW:
